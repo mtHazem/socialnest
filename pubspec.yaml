@@ -11,14 +11,24 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  provider: ^6.1.1
+  
+  # Firebase Core
   firebase_core: ^2.24.0
   cloud_firestore: ^4.9.5
   firebase_auth: ^4.17.1
-  google_sign_in: ^6.1.5
-  cupertino_icons: ^1.0.2
-  image_picker: ^1.0.4
   firebase_storage: ^11.5.2
+  
+  # State Management
+  provider: ^6.1.1
+  
+  # Media & Images
+  image_picker: ^1.0.4
+  
+  # Google Sign-In (optional - for future use)
+  google_sign_in: ^6.1.5
+  
+  # UI Components
+  cupertino_icons: ^1.0.2
 
 dev_dependencies:
   flutter_test:
@@ -27,5 +37,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  
   assets:
     - assets/images/

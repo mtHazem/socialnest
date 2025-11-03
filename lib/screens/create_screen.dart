@@ -15,6 +15,8 @@ class _CreateScreenState extends State<CreateScreen> with SingleTickerProviderSt
   late Animation<Offset> _slideAnimation;
   
   final TextEditingController _postController = TextEditingController();
+  final TextEditingController _imageUrlController = TextEditingController(); // NEW: For image URL
+  
   final List<CreateOption> _createOptions = [
     CreateOption(
       title: 'Social Post',
@@ -82,6 +84,10 @@ class _CreateScreenState extends State<CreateScreen> with SingleTickerProviderSt
   ];
   final int _maxQuizOptions = 6;
 
+  // Image URL field
+  String? _imageUrl; // NEW: Store image URL
+  bool _showImageUrlField = false; // NEW: Control visibility
+
   bool _isLoading = false;
 
   @override
@@ -110,6 +116,7 @@ class _CreateScreenState extends State<CreateScreen> with SingleTickerProviderSt
   void dispose() {
     _animationController.dispose();
     _postController.dispose();
+    _imageUrlController.dispose(); // NEW: Dispose image URL controller
     for (var controller in _quizOptionControllers) {
       controller.dispose();
     }
@@ -125,8 +132,9 @@ class _CreateScreenState extends State<CreateScreen> with SingleTickerProviderSt
   }
 
   void _createRegularPost() async {
-    if (_postController.text.trim().isEmpty) {
-      _showErrorDialog('Please write something to share!');
+    // NEW: Better validation - allow posts with just images
+    if (_postController.text.trim().isEmpty && _imageUrl == null) {
+      _showErrorDialog('Please write something or add an image to share!');
       return;
     }
 
@@ -138,6 +146,7 @@ class _CreateScreenState extends State<CreateScreen> with SingleTickerProviderSt
       final success = await Provider.of<FirebaseService>(context, listen: false).createPost(
         content: _postController.text.trim(),
         type: _selectedPostType,
+        imageUrl: _imageUrl, // NEW: Pass image URL
         subject: _selectedSubject == 'General' ? null : _selectedSubject,
         tags: _getTagsFromContent(_postController.text),
       );
@@ -204,6 +213,32 @@ class _CreateScreenState extends State<CreateScreen> with SingleTickerProviderSt
       });
       _showErrorDialog('An error occurred: $e');
     }
+  }
+
+  // NEW: Image URL methods
+  void _addImageUrl() {
+    if (_imageUrlController.text.trim().isNotEmpty) {
+      setState(() {
+        _imageUrl = _imageUrlController.text.trim();
+        _showImageUrlField = false;
+        _imageUrlController.clear();
+      });
+    }
+  }
+
+  void _removeImageUrl() {
+    setState(() {
+      _imageUrl = null;
+    });
+  }
+
+  void _toggleImageUrlField() {
+    setState(() {
+      _showImageUrlField = !_showImageUrlField;
+      if (!_showImageUrlField) {
+        _imageUrlController.clear();
+      }
+    });
   }
 
   void _addQuizOption() {
@@ -422,9 +457,101 @@ class _CreateScreenState extends State<CreateScreen> with SingleTickerProviderSt
                             ),
                           ],
                         ),
+                        const Spacer(),
+                        // NEW: Add Image URL Button
+                        IconButton(
+                          icon: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              _imageUrl != null ? Icons.photo_library : Icons.photo_library_outlined,
+                              size: 20,
+                              color: _imageUrl != null ? const Color(0xFF7C3AED) : Colors.white70,
+                            ),
+                          ),
+                          onPressed: _toggleImageUrlField,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 20),
+
+                    // NEW: Image URL Input Field (Conditional)
+                    if (_showImageUrlField) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _imageUrlController,
+                                style: const TextStyle(color: Colors.white),
+                                decoration: const InputDecoration(
+                                  hintText: 'Paste image URL...',
+                                  hintStyle: TextStyle(color: Color(0xFF94A3B8)),
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.all(8),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.check_rounded, color: Color(0xFF10B981)),
+                              onPressed: _addImageUrl,
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded, color: Color(0xFFEF4444)),
+                              onPressed: _toggleImageUrlField,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // NEW: Image Preview
+                    if (_imageUrl != null) ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        child: Stack(
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              height: 150,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E293B),
+                                borderRadius: BorderRadius.circular(12),
+                                image: DecorationImage(
+                                  image: NetworkImage(_imageUrl!),
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: GestureDetector(
+                                onTap: _removeImageUrl,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
 
                     // Subject Selection
                     Container(

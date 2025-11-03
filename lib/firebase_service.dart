@@ -53,8 +53,6 @@ class FirebaseService with ChangeNotifier {
         'likes': 0,
         'comments': 0,
         'shares': 0,
-        'isLiked': false,
-        'isSaved': false,
         'timestamp': FieldValue.serverTimestamp(),
       });
 
@@ -220,8 +218,6 @@ class FirebaseService with ChangeNotifier {
         'likes': 0,
         'comments': 0,
         'shares': 0,
-        'isLiked': false,
-        'isSaved': false,
         'timestamp': FieldValue.serverTimestamp(),
       });
 
@@ -245,16 +241,64 @@ class FirebaseService with ChangeNotifier {
         .snapshots();
   }
 
-  Future<void> likePost(String postId, bool currentlyLiked) async {
+  // ========== FIXED LIKE METHODS ==========
+
+  Future<void> likePost(String postId) async {
     try {
-      await _firestore.collection('posts').doc(postId).update({
-        'likes': FieldValue.increment(currentlyLiked ? -1 : 1),
-        'isLiked': !currentlyLiked,
-      });
+      if (_auth.currentUser == null) return;
+
+      final currentUserId = _auth.currentUser!.uid;
+      final postRef = _firestore.collection('posts').doc(postId);
+      
+      // Check if user already liked this post
+      final userLikeRef = _firestore
+          .collection('posts')
+          .doc(postId)
+          .collection('likes')
+          .doc(currentUserId);
+
+      final userLikeDoc = await userLikeRef.get();
+      
+      if (userLikeDoc.exists) {
+        // User already liked - unlike it
+        await userLikeRef.delete();
+        await postRef.update({
+          'likes': FieldValue.increment(-1),
+        });
+      } else {
+        // User hasn't liked - like it
+        await userLikeRef.set({
+          'userId': currentUserId,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+        await postRef.update({
+          'likes': FieldValue.increment(1),
+        });
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Like post error: $e');
       }
+    }
+  }
+
+  Future<bool> hasUserLikedPost(String postId) async {
+    try {
+      if (_auth.currentUser == null) return false;
+
+      final userLikeDoc = await _firestore
+          .collection('posts')
+          .doc(postId)
+          .collection('likes')
+          .doc(_auth.currentUser!.uid)
+          .get();
+
+      return userLikeDoc.exists;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Check like error: $e');
+      }
+      return false;
     }
   }
 
@@ -566,6 +610,124 @@ class FirebaseService with ChangeNotifier {
     } catch (e) {
       if (kDebugMode) {
         print('Remove friend error: $e');
+      }
+    }
+  }
+
+  // ========== COMMENT METHODS ==========
+
+  Future<bool> addComment(String postId, String content) async {
+    try {
+      if (_auth.currentUser == null) return false;
+
+      Map<String, dynamic>? userData = await getUserData();
+      
+      String commentId = _firestore.collection('comments').doc().id;
+      
+      await _firestore.collection('comments').doc(commentId).set({
+        'id': commentId,
+        'postId': postId,
+        'userId': _auth.currentUser!.uid,
+        'userName': userData?['displayName'] ?? _auth.currentUser!.email!.split('@').first,
+        'userAvatar': userData?['avatar'] ?? _auth.currentUser!.email![0],
+        'content': content,
+        'likes': 0,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      // Update comment count in post
+      await _firestore.collection('posts').doc(postId).update({
+        'comments': FieldValue.increment(1),
+      });
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Add comment error: $e');
+      }
+      return false;
+    }
+  }
+
+  Stream<QuerySnapshot> getComments(String postId) {
+    return _firestore
+        .collection('comments')
+        .where('postId', isEqualTo: postId)
+        .orderBy('timestamp', descending: false)
+        .snapshots();
+  }
+
+  Future<void> likeComment(String commentId) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      final currentUserId = _auth.currentUser!.uid;
+      final commentRef = _firestore.collection('comments').doc(commentId);
+      
+      // Check if user already liked this comment
+      final userLikeRef = _firestore
+          .collection('comments')
+          .doc(commentId)
+          .collection('likes')
+          .doc(currentUserId);
+
+      final userLikeDoc = await userLikeRef.get();
+      
+      if (userLikeDoc.exists) {
+        // User already liked - unlike it
+        await userLikeRef.delete();
+        await commentRef.update({
+          'likes': FieldValue.increment(-1),
+        });
+      } else {
+        // User hasn't liked - like it
+        await userLikeRef.set({
+          'userId': currentUserId,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+        await commentRef.update({
+          'likes': FieldValue.increment(1),
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Like comment error: $e');
+      }
+    }
+  }
+
+  Future<bool> hasUserLikedComment(String commentId) async {
+    try {
+      if (_auth.currentUser == null) return false;
+
+      final userLikeDoc = await _firestore
+          .collection('comments')
+          .doc(commentId)
+          .collection('likes')
+          .doc(_auth.currentUser!.uid)
+          .get();
+
+      return userLikeDoc.exists;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Check comment like error: $e');
+      }
+      return false;
+    }
+  }
+
+  Future<void> deleteComment(String commentId, String postId) async {
+    try {
+      // Delete the comment
+      await _firestore.collection('comments').doc(commentId).delete();
+      
+      // Decrement comment count in post
+      await _firestore.collection('posts').doc(postId).update({
+        'comments': FieldValue.increment(-1),
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('Delete comment error: $e');
       }
     }
   }
