@@ -20,6 +20,7 @@ class CommentsScreen extends StatefulWidget {
 class _CommentsScreenState extends State<CommentsScreen> {
   final TextEditingController _commentController = TextEditingController();
   bool _isLoading = false;
+  final ScrollController _scrollController = ScrollController();
 
   void _addComment() async {
     if (_commentController.text.trim().isEmpty) return;
@@ -35,14 +36,50 @@ class _CommentsScreenState extends State<CommentsScreen> {
       if (success) {
         _commentController.clear();
         FocusScope.of(context).unfocus();
+        
+        // Scroll to bottom to show the new comment
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      } else {
+        _showErrorDialog('Failed to add comment. Please try again.');
       }
     } catch (e) {
-      // Error handling
+      _showErrorDialog('An error occurred: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
+  }
 
-    setState(() {
-      _isLoading = false;
-    });
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text(
+          'Error',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Color(0xFF7C3AED))),
+          ),
+        ],
+      ),
+    );
   }
 
   void _deleteComment(String commentId) {
@@ -86,6 +123,13 @@ class _CommentsScreenState extends State<CommentsScreen> {
     if (difference.inHours < 24) return '${difference.inHours}h ago';
     if (difference.inDays < 7) return '${difference.inDays}d ago';
     return '${(difference.inDays / 7).floor()}w ago';
+  }
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -155,7 +199,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
 
           // Comments List
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
               stream: Provider.of<FirebaseService>(context).getComments(widget.postId),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -166,7 +210,16 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   );
                 }
 
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Error loading comments: ${snapshot.error}',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  );
+                }
+
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
                   return const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -192,14 +245,22 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   );
                 }
 
-                final comments = snapshot.data!.docs;
+                final comments = snapshot.data!;
+
+                // Auto-scroll to bottom when new comments are added
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (_scrollController.hasClients && comments.isNotEmpty) {
+                    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+                  }
+                });
 
                 return ListView.builder(
+                  controller: _scrollController,
                   padding: const EdgeInsets.all(16),
                   itemCount: comments.length,
                   itemBuilder: (context, index) {
                     final comment = comments[index];
-                    final commentData = comment.data() as Map<String, dynamic>;
+                    final commentData = comment.data();
                     final isCurrentUser = commentData['userId'] == firebaseService.currentUser?.uid;
 
                     return Container(
@@ -261,10 +322,10 @@ class _CommentsScreenState extends State<CommentsScreen> {
                                   const SizedBox(height: 8),
                                   Row(
                                     children: [
-                                      // Fixed Like Comment Section
-                                      FutureBuilder<bool>(
-                                        future: Provider.of<FirebaseService>(context, listen: false)
-                                            .hasUserLikedComment(commentData['id']),
+                                      // Like Comment Section
+                                      StreamBuilder<bool>(
+                                        stream: Provider.of<FirebaseService>(context, listen: false)
+                                            .getCommentLikeStatus(commentData['id']),
                                         builder: (context, likeSnapshot) {
                                           final isCommentLiked = likeSnapshot.data ?? false;
                                           
@@ -272,7 +333,6 @@ class _CommentsScreenState extends State<CommentsScreen> {
                                             onTap: () {
                                               Provider.of<FirebaseService>(context, listen: false)
                                                   .likeComment(commentData['id']);
-                                              setState(() {}); // Refresh UI
                                             },
                                             child: Row(
                                               children: [
@@ -378,11 +438,5 @@ class _CommentsScreenState extends State<CommentsScreen> {
         ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _commentController.dispose();
-    super.dispose();
   }
 }

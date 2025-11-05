@@ -1,30 +1,34 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:social_nest/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  testWidgets('SocialNest app starts with welcome screen', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const SocialNestApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Verify that the welcome screen is displayed
+    expect(find.text('SocialNest'), findsOneWidget);
+    expect(find.text('Connect, Share & Grow Together'), findsOneWidget);
+    expect(find.text('Join SocialNest'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  testWidgets('Welcome screen has all main elements', (WidgetTester tester) async {
+    await tester.pumpWidget(const SocialNestApp());
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Check for main title
+    expect(find.text('SocialNest'), findsOneWidget);
+    
+    // Check for subtitle
+    expect(find.text('Connect, Share & Grow Together'), findsOneWidget);
+    
+    // Check for buttons
+    expect(find.text('Join SocialNest'), findsOneWidget);
+    expect(find.text('I Have an Account'), findsOneWidget);
+    
+    // Check for feature stats
+    expect(find.text('50K+'), findsOneWidget);
+    expect(find.text('100K+'), findsOneWidget);
+    expect(find.text('1M+'), findsOneWidget);
   });
 }

@@ -12,6 +12,46 @@ class FirebaseService with ChangeNotifier {
   String? get userName => _auth.currentUser?.displayName;
   String? get userAvatar => _auth.currentUser?.displayName?[0] ?? _auth.currentUser?.email?[0];
 
+  // ========== LIKE STATUS STREAM METHODS ==========
+  
+  Stream<bool> getPostLikeStatus(String postId) {
+    try {
+      if (_auth.currentUser == null) return Stream.value(false);
+      
+      return _firestore
+          .collection('posts')
+          .doc(postId)
+          .collection('likes')
+          .doc(_auth.currentUser!.uid)
+          .snapshots()
+          .map((snapshot) => snapshot.exists);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get post like status error: $e');
+      }
+      return Stream.value(false);
+    }
+  }
+
+  Stream<bool> getCommentLikeStatus(String commentId) {
+    try {
+      if (_auth.currentUser == null) return Stream.value(false);
+      
+      return _firestore
+          .collection('comments')
+          .doc(commentId)
+          .collection('likes')
+          .doc(_auth.currentUser!.uid)
+          .snapshots()
+          .map((snapshot) => snapshot.exists);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get comment like status error: $e');
+      }
+      return Stream.value(false);
+    }
+  }
+
   // ========== QUIZ POST METHODS ==========
 
   Future<bool> createQuizPost({
@@ -70,35 +110,37 @@ class FirebaseService with ChangeNotifier {
   }
 
   Future<bool> voteOnQuiz(String postId, String selectedOption) async {
-    try {
-      if (_auth.currentUser == null) return false;
+  try {
+    if (_auth.currentUser == null) return false;
 
-      final currentUserId = _auth.currentUser!.uid;
+    final currentUserId = _auth.currentUser!.uid;
 
-      // Check if user already voted
-      final postDoc = await _firestore.collection('posts').doc(postId).get();
-      final postData = postDoc.data() as Map<String, dynamic>;
-      
-      final List<dynamic> votedUsers = postData['votedUsers'] ?? [];
-      if (votedUsers.contains(currentUserId)) {
-        return false; // User already voted
-      }
-
-      // Update the vote
-      await _firestore.collection('posts').doc(postId).update({
-        'quizVotes.$selectedOption': FieldValue.increment(1),
-        'totalVotes': FieldValue.increment(1),
-        'votedUsers': FieldValue.arrayUnion([currentUserId]),
-      });
-
-      return true;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Vote on quiz error: $e');
-      }
-      return false;
+    // Check if user already voted
+    final postDoc = await _firestore.collection('posts').doc(postId).get();
+    if (!postDoc.exists) return false;
+    
+    final postData = postDoc.data() as Map<String, dynamic>;
+    
+    final List<dynamic> votedUsers = postData['votedUsers'] ?? [];
+    if (votedUsers.contains(currentUserId)) {
+      return false; // User already voted
     }
+
+    // Update the vote
+    await _firestore.collection('posts').doc(postId).update({
+      'quizVotes.$selectedOption': FieldValue.increment(1),
+      'totalVotes': FieldValue.increment(1),
+      'votedUsers': FieldValue.arrayUnion([currentUserId]),
+    });
+
+    return true;
+  } catch (e) {
+    if (kDebugMode) {
+      print('Vote on quiz error: $e');
+    }
+    return false;
   }
+}
 
   Future<Map<String, dynamic>?> getQuizResults(String postId) async {
     try {
@@ -649,13 +691,24 @@ class FirebaseService with ChangeNotifier {
     }
   }
 
-  Stream<QuerySnapshot> getComments(String postId) {
-    return _firestore
-        .collection('comments')
-        .where('postId', isEqualTo: postId)
-        .orderBy('timestamp', descending: false)
-        .snapshots();
-  }
+  // FIXED: Manual sorting to avoid composite index error
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> getComments(String postId) {
+  return _firestore
+      .collection('comments')
+      .where('postId', isEqualTo: postId)
+      .snapshots()
+      .map((snapshot) {
+    // Manual sorting as temporary workaround for index error
+    final sortedDocs = snapshot.docs.toList()
+      ..sort((a, b) {
+        final aTime = (a.data()['timestamp'] as Timestamp).millisecondsSinceEpoch;
+        final bTime = (b.data()['timestamp'] as Timestamp).millisecondsSinceEpoch;
+        return aTime.compareTo(bTime); // Ascending order (oldest first)
+      });
+    
+    return sortedDocs;
+  });
+}
 
   Future<void> likeComment(String commentId) async {
     try {
