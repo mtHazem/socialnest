@@ -731,7 +731,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
               ),
               child: Column(
                 children: [
-                  const Icon(Icons.lightbulb_outline_rounded, size: 64, color: Color(0xFF94A3B8)),
+                  const Icon(Icons.lightbulb_outline_rounded, size: 80, color: Color(0xFF94A3B8)),
                   const SizedBox(height: 16),
                   const Text(
                     'No Posts Yet',
@@ -752,7 +752,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                   const SizedBox(height: 20),
                   ElevatedButton(
                     onPressed: () {
-                      // Navigate to create screen
                       Navigator.pushNamed(context, '/create');
                     },
                     style: ElevatedButton.styleFrom(
@@ -826,27 +825,38 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                 color: Color(0xFF94A3B8),
               ),
             ),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: _getPostColor(post['type'] ?? 'social').withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(_getPostIcon(post['type'] ?? 'social'), size: 12, color: _getPostColor(post['type'] ?? 'social')),
-                  const SizedBox(width: 4),
-                  Text(
-                    _getPostTypeLabel(post['type'] ?? 'social'),
-                    style: TextStyle(
-                      color: _getPostColor(post['type'] ?? 'social'),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _getPostColor(post['type'] ?? 'social').withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ],
-              ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(_getPostIcon(post['type'] ?? 'social'), size: 12, color: _getPostColor(post['type'] ?? 'social')),
+                      const SizedBox(width: 4),
+                      Text(
+                        _getPostTypeLabel(post['type'] ?? 'social'),
+                        style: TextStyle(
+                          color: _getPostColor(post['type'] ?? 'social'),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 3-dot menu button for post options
+                IconButton(
+                  icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF94A3B8), size: 20),
+                  onPressed: () => _showPostOptions(context, post, postId),
+                ),
+              ],
             ),
           ),
 
@@ -1082,6 +1092,279 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         ],
       ),
     );
+  }
+
+  // Add this method to show post options
+  void _showPostOptions(BuildContext context, Map<String, dynamic> post, String postId) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildPostOption(
+              Icons.edit_rounded,
+              'Edit Post',
+              Colors.blue,
+              () {
+                Navigator.pop(context);
+                _editPost(post, postId);
+              },
+            ),
+            _buildPostOption(
+              Icons.delete_rounded,
+              'Delete Post',
+              Colors.red,
+              () {
+                Navigator.pop(context);
+                _deletePost(postId);
+              },
+            ),
+            const SizedBox(height: 8),
+            Container(height: 1, color: Colors.white.withOpacity(0.1)),
+            const SizedBox(height: 8),
+            _buildPostOption(
+              Icons.cancel_rounded,
+              'Cancel',
+              const Color(0xFF94A3B8),
+              () => Navigator.pop(context),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostOption(IconData icon, String title, Color color, VoidCallback onTap) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(width: 16),
+              Text(
+                title,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Add this method to edit a post
+  void _editPost(Map<String, dynamic> post, String postId) {
+    final contentController = TextEditingController(text: post['content'] ?? '');
+    
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Edit Post',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: contentController,
+                maxLines: 4,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'Post Content',
+                  labelStyle: TextStyle(color: Color(0xFF94A3B8)),
+                  border: OutlineInputBorder(),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF7C3AED)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF7C3AED)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Color(0xFF94A3B8)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        if (contentController.text.trim().isNotEmpty) {
+                          await _updatePost(postId, contentController.text.trim());
+                          if (mounted) Navigator.pop(context);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF7C3AED),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                      child: const Text('Save'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Add this method to update post in Firestore
+  Future<void> _updatePost(String postId, String newContent) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('posts')
+          .doc(postId)
+          .update({
+            'content': newContent,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Post updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update post: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Add this method to delete a post
+  void _deletePost(String postId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text(
+          'Delete Post',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to delete this post? This action cannot be undone.',
+          style: TextStyle(color: Color(0xFF94A3B8)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Color(0xFF94A3B8)),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _confirmDeletePost(postId);
+            },
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Add this method to confirm and delete post
+  Future<void> _confirmDeletePost(String postId) async {
+    try {
+      // First, delete all comments for this post
+      final commentsSnapshot = await FirebaseFirestore.instance
+          .collection('comments')
+          .where('postId', isEqualTo: postId)
+          .get();
+      
+      final batch = FirebaseFirestore.instance.batch();
+      
+      // Delete all comments
+      for (final comment in commentsSnapshot.docs) {
+        batch.delete(comment.reference);
+      }
+      
+      // Delete the post
+      batch.delete(FirebaseFirestore.instance.collection('posts').doc(postId));
+      
+      // Update user stats
+      final firebaseService = Provider.of<FirebaseService>(context, listen: false);
+      await firebaseService.updateUserStats(postsCount: -1);
+      
+      await batch.commit();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Post deleted successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete post: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildPostAction(IconData icon, String label, Color color, VoidCallback onTap) {

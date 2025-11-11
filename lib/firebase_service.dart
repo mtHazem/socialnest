@@ -36,6 +36,7 @@ class FirebaseService with ChangeNotifier {
         'studyHours': 0,
         'quizzesCompleted': 0,
         'notesCreated': 0,
+        'unreadNotifications': 0, // Add this for notification count
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -511,7 +512,6 @@ class FirebaseService with ChangeNotifier {
     }
   }
 
-  // ADD THIS METHOD - FIXED FOR PROFILE SCREEN
   Stream<QuerySnapshot> getUserPosts(String userId) {
     try {
       return _firestore
@@ -597,11 +597,13 @@ class FirebaseService with ChangeNotifier {
       final userLikeDoc = await userLikeRef.get();
       
       if (userLikeDoc.exists) {
+        // Unlike
         await userLikeRef.delete();
         await postRef.update({
           'likes': FieldValue.increment(-1),
         });
       } else {
+        // Like
         await userLikeRef.set({
           'userId': currentUserId,
           'timestamp': FieldValue.serverTimestamp(),
@@ -609,6 +611,28 @@ class FirebaseService with ChangeNotifier {
         await postRef.update({
           'likes': FieldValue.increment(1),
         });
+
+        // Send notification to post owner (if it's not the current user)
+        final postDoc = await postRef.get();
+        if (postDoc.exists) {
+          final postData = postDoc.data() as Map<String, dynamic>;
+          final postOwnerId = postData['userId'];
+          
+          if (postOwnerId != currentUserId) {
+            final userData = await getUserData();
+            await sendNotification(
+              receiverId: postOwnerId,
+              type: 'post_like',
+              title: 'Post Liked',
+              message: '${userData?['displayName'] ?? userName ?? 'User'} liked your post',
+              senderId: currentUserId,
+              senderName: userData?['displayName'] ?? userName ?? 'User',
+              senderAvatar: userData?['avatar'] ?? userAvatar ?? 'U',
+              targetId: postId,
+              data: {'postContent': postData['content']},
+            );
+          }
+        }
       }
     } catch (e) {
       if (kDebugMode) {
@@ -667,6 +691,30 @@ class FirebaseService with ChangeNotifier {
         'You commented on a post',
         data: {'postId': postId},
       );
+
+      // Send notification to post owner (if it's not the current user)
+      final postDoc = await _firestore.collection('posts').doc(postId).get();
+      if (postDoc.exists) {
+        final postData = postDoc.data() as Map<String, dynamic>;
+        final postOwnerId = postData['userId'];
+        
+        if (postOwnerId != _auth.currentUser!.uid) {
+          await sendNotification(
+            receiverId: postOwnerId,
+            type: 'post_comment',
+            title: 'New Comment',
+            message: '${userData?['displayName'] ?? _auth.currentUser!.email!.split('@').first} commented on your post',
+            senderId: _auth.currentUser!.uid,
+            senderName: userData?['displayName'] ?? _auth.currentUser!.email!.split('@').first,
+            senderAvatar: userData?['avatar'] ?? _auth.currentUser!.email![0],
+            targetId: postId,
+            data: {
+              'postContent': postData['content'],
+              'commentContent': content,
+            },
+          );
+        }
+      }
 
       return true;
     } catch (e) {
@@ -761,6 +809,149 @@ class FirebaseService with ChangeNotifier {
     }
   }
 
+  // ========== NOTIFICATION METHODS ==========
+
+  Future<void> sendNotification({
+    required String receiverId,
+    required String type,
+    required String title,
+    required String message,
+    required String senderId,
+    required String senderName,
+    required String senderAvatar,
+    String? targetId,
+    Map<String, dynamic>? data,
+  }) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      final notificationId = _firestore.collection('notifications').doc().id;
+
+    await _firestore
+        .collection('users')
+        .doc(receiverId)
+        .collection('notifications')
+        .doc(notificationId)
+        .set({
+          'id': notificationId,
+          'type': type,
+          'title': title,
+          'message': message,
+          'senderId': senderId,
+          'senderName': senderName,
+          'senderAvatar': senderAvatar,
+          'targetId': targetId,
+          'data': data,
+          'isRead': false,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+
+    // Update user's unread notification count
+    await _firestore.collection('users').doc(receiverId).update({
+      'unreadNotifications': FieldValue.increment(1),
+    });
+
+    } catch (e) {
+      if (kDebugMode) {
+        print('Send notification error: $e');
+      }
+    }
+  }
+
+  Stream<QuerySnapshot> getUserNotifications() {
+    try {
+      if (_auth.currentUser == null) {
+        return const Stream.empty();
+      }
+      
+      return _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('notifications')
+          .orderBy('timestamp', descending: true)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get user notifications error: $e');
+      }
+      return const Stream.empty();
+    }
+  }
+
+  Future<void> markNotificationAsRead(String notificationId) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      await _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('notifications')
+          .doc(notificationId)
+          .update({
+            'isRead': true,
+          });
+
+      // Update user's unread notification count
+      await _firestore.collection('users').doc(_auth.currentUser!.uid).update({
+        'unreadNotifications': FieldValue.increment(-1),
+      });
+
+    } catch (e) {
+      if (kDebugMode) {
+        print('Mark notification as read error: $e');
+      }
+    }
+  }
+
+  Future<void> markAllNotificationsAsRead() async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      final notificationsSnapshot = await _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('notifications')
+          .where('isRead', isEqualTo: false)
+          .get();
+
+      final batch = _firestore.batch();
+      
+      for (final doc in notificationsSnapshot.docs) {
+        batch.update(doc.reference, {'isRead': true});
+      }
+
+      await batch.commit();
+
+      // Reset unread notification count
+      await _firestore.collection('users').doc(_auth.currentUser!.uid).update({
+        'unreadNotifications': 0,
+      });
+
+    } catch (e) {
+      if (kDebugMode) {
+        print('Mark all notifications as read error: $e');
+      }
+    }
+  }
+
+  Stream<DocumentSnapshot> getUnreadNotificationCount() {
+    try {
+      if (_auth.currentUser == null) {
+        return const Stream.empty();
+      }
+      
+      return _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get unread notification count error: $e');
+      }
+      return const Stream.empty();
+    }
+  }
+
   // ========== FRIENDS SYSTEM ==========
 
   Future<void> sendFriendRequest(String targetUserId, String targetUserName, String targetUserAvatar) async {
@@ -796,6 +987,18 @@ class FirebaseService with ChangeNotifier {
         'Friend Request Sent',
         'You sent a friend request to $targetUserName',
         data: {'targetUserId': targetUserId, 'targetUserName': targetUserName},
+      );
+
+      // Send notification to the target user
+      await sendNotification(
+        receiverId: targetUserId,
+        type: 'friend_request',
+        title: 'Friend Request',
+        message: '${currentUserData?['displayName'] ?? userName ?? 'User'} sent you a friend request',
+        senderId: currentUserId,
+        senderName: currentUserData?['displayName'] ?? userName ?? 'User',
+        senderAvatar: currentUserData?['avatar'] ?? userAvatar ?? 'U',
+        data: {'requestId': 'pending'},
       );
 
       notifyListeners();
@@ -861,6 +1064,17 @@ class FirebaseService with ChangeNotifier {
         'New Friend!',
         'You became friends with ${requestData['fromUserName']}',
         data: {'friendUserId': fromUserId, 'friendName': requestData['fromUserName']},
+      );
+
+      // Send notification to the original requester
+      await sendNotification(
+        receiverId: fromUserId,
+        type: 'friend_accepted',
+        title: 'Friend Request Accepted',
+        message: '${currentUserData?['displayName'] ?? userName ?? 'User'} accepted your friend request',
+        senderId: currentUserId,
+        senderName: currentUserData?['displayName'] ?? userName ?? 'User',
+        senderAvatar: currentUserData?['avatar'] ?? userAvatar ?? 'U',
       );
 
       notifyListeners();
@@ -972,7 +1186,7 @@ class FirebaseService with ChangeNotifier {
       return snapshot.docs
           .where((doc) => doc.id != currentUserId)
           .map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         return {
           'id': doc.id,
           ...data,

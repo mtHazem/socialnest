@@ -7,6 +7,7 @@ import 'create_screen.dart';
 import 'friends_screen.dart';
 import 'explore_screen.dart';
 import 'comments_screen.dart';
+import 'notifications_screen.dart'; // Add this import
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -132,13 +133,32 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ),
                           const Spacer(),
-                          IconButton(
-                            icon: Badge(
-                              backgroundColor: const Color(0xFFEF4444),
-                              smallSize: 8,
-                              child: const Icon(Icons.notifications_none_rounded, color: Colors.white70),
-                            ),
-                            onPressed: () {},
+                          // Updated Notification Icon with Badge
+                          StreamBuilder<DocumentSnapshot>(
+                            stream: Provider.of<FirebaseService>(context).getUnreadNotificationCount(),
+                            builder: (context, snapshot) {
+                              int unreadCount = 0;
+                              if (snapshot.hasData && snapshot.data!.exists) {
+                                final userData = snapshot.data!.data() as Map<String, dynamic>;
+                                unreadCount = userData['unreadNotifications'] ?? 0;
+                              }
+                              
+                              return Badge(
+                                isLabelVisible: unreadCount > 0,
+                                label: Text(unreadCount.toString()),
+                                backgroundColor: const Color(0xFFEF4444),
+                                textColor: Colors.white,
+                                child: IconButton(
+                                  icon: const Icon(Icons.notifications_none_rounded, color: Colors.white70),
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                                    );
+                                  },
+                                ),
+                              );
+                            },
                           ),
                           IconButton(
                             icon: const Icon(Icons.search_rounded, color: Colors.white70),
@@ -477,6 +497,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final postColor = _getPostColor(post['type'] ?? 'social');
     final postIcon = _getPostIcon(post['type'] ?? 'social');
     final typeLabel = _getPostTypeLabel(post['type'] ?? 'social');
+    final hasImage = post['imageUrl'] != null && post['imageUrl'].toString().isNotEmpty;
+    final isQuiz = post['type'] == 'quiz';
 
     return Container(
       decoration: BoxDecoration(
@@ -573,7 +595,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
 
           // Post Image
-          if (post['imageUrl'] != null && post['imageUrl'].toString().isNotEmpty) ...[
+          if (hasImage) ...[
             const SizedBox(height: 16),
             Container(
               height: 200,
@@ -625,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
 
           // Quiz Section
-          if (post['type'] == 'quiz' && post['quizOptions'] != null) ...[
+          if (isQuiz && post['quizOptions'] != null) ...[
             const SizedBox(height: 16),
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
