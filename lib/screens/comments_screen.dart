@@ -199,7 +199,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
 
           // Comments List
           Expanded(
-            child: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+            child: StreamBuilder<QuerySnapshot>(
               stream: Provider.of<FirebaseService>(context).getComments(widget.postId),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -219,7 +219,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   );
                 }
 
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -245,7 +245,16 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   );
                 }
 
-                final comments = snapshot.data!;
+                final comments = snapshot.data!.docs;
+
+                // Sort comments by timestamp
+                comments.sort((a, b) {
+                  final aData = a.data() as Map<String, dynamic>;
+                  final bData = b.data() as Map<String, dynamic>;
+                  final aTime = (aData['timestamp'] as Timestamp).millisecondsSinceEpoch;
+                  final bTime = (bData['timestamp'] as Timestamp).millisecondsSinceEpoch;
+                  return aTime.compareTo(bTime);
+                });
 
                 // Auto-scroll to bottom when new comments are added
                 WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -260,7 +269,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   itemCount: comments.length,
                   itemBuilder: (context, index) {
                     final comment = comments[index];
-                    final commentData = comment.data();
+                    final commentData = comment.data() as Map<String, dynamic>;
                     final isCurrentUser = commentData['userId'] == firebaseService.currentUser?.uid;
 
                     return Container(

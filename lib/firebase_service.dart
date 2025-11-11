@@ -12,155 +12,6 @@ class FirebaseService with ChangeNotifier {
   String? get userName => _auth.currentUser?.displayName;
   String? get userAvatar => _auth.currentUser?.displayName?[0] ?? _auth.currentUser?.email?[0];
 
-  // ========== LIKE STATUS STREAM METHODS ==========
-  
-  Stream<bool> getPostLikeStatus(String postId) {
-    try {
-      if (_auth.currentUser == null) return Stream.value(false);
-      
-      return _firestore
-          .collection('posts')
-          .doc(postId)
-          .collection('likes')
-          .doc(_auth.currentUser!.uid)
-          .snapshots()
-          .map((snapshot) => snapshot.exists);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Get post like status error: $e');
-      }
-      return Stream.value(false);
-    }
-  }
-
-  Stream<bool> getCommentLikeStatus(String commentId) {
-    try {
-      if (_auth.currentUser == null) return Stream.value(false);
-      
-      return _firestore
-          .collection('comments')
-          .doc(commentId)
-          .collection('likes')
-          .doc(_auth.currentUser!.uid)
-          .snapshots()
-          .map((snapshot) => snapshot.exists);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Get comment like status error: $e');
-      }
-      return Stream.value(false);
-    }
-  }
-
-  // ========== QUIZ POST METHODS ==========
-
-  Future<bool> createQuizPost({
-    required String question,
-    required List<String> options,
-    required String subject,
-    List<String> tags = const [],
-  }) async {
-    try {
-      if (_auth.currentUser == null) return false;
-
-      Map<String, dynamic>? userData = await getUserData();
-      
-      String postId = _firestore.collection('posts').doc().id;
-      
-      // Initialize vote counts for each option
-      Map<String, int> optionVotes = {};
-      for (String option in options) {
-        optionVotes[option] = 0;
-      }
-
-      await _firestore.collection('posts').doc(postId).set({
-        'id': postId,
-        'userId': _auth.currentUser!.uid,
-        'userName': userData?['displayName'] ?? _auth.currentUser!.email!.split('@').first,
-        'userAvatar': userData?['avatar'] ?? _auth.currentUser!.email![0],
-        'content': question,
-        'type': 'quiz',
-        'subject': subject,
-        'tags': tags,
-        
-        // Quiz-specific fields
-        'quizOptions': options,
-        'quizVotes': optionVotes,
-        'votedUsers': [], // Track who voted to prevent multiple votes
-        'totalVotes': 0,
-        'correctAnswer': null, // Can be set later for educational quizzes
-        
-        'likes': 0,
-        'comments': 0,
-        'shares': 0,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      await _firestore.collection('users').doc(_auth.currentUser!.uid).update({
-        'postsCount': FieldValue.increment(1),
-      });
-
-      return true;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Create quiz post error: $e');
-      }
-      return false;
-    }
-  }
-
-  Future<bool> voteOnQuiz(String postId, String selectedOption) async {
-  try {
-    if (_auth.currentUser == null) return false;
-
-    final currentUserId = _auth.currentUser!.uid;
-
-    // Check if user already voted
-    final postDoc = await _firestore.collection('posts').doc(postId).get();
-    if (!postDoc.exists) return false;
-    
-    final postData = postDoc.data() as Map<String, dynamic>;
-    
-    final List<dynamic> votedUsers = postData['votedUsers'] ?? [];
-    if (votedUsers.contains(currentUserId)) {
-      return false; // User already voted
-    }
-
-    // Update the vote
-    await _firestore.collection('posts').doc(postId).update({
-      'quizVotes.$selectedOption': FieldValue.increment(1),
-      'totalVotes': FieldValue.increment(1),
-      'votedUsers': FieldValue.arrayUnion([currentUserId]),
-    });
-
-    return true;
-  } catch (e) {
-    if (kDebugMode) {
-      print('Vote on quiz error: $e');
-    }
-    return false;
-  }
-}
-
-  Future<Map<String, dynamic>?> getQuizResults(String postId) async {
-    try {
-      final postDoc = await _firestore.collection('posts').doc(postId).get();
-      if (!postDoc.exists) return null;
-      
-      final postData = postDoc.data() as Map<String, dynamic>;
-      return {
-        'votes': postData['quizVotes'] ?? {},
-        'totalVotes': postData['totalVotes'] ?? 0,
-        'hasVoted': (postData['votedUsers'] ?? []).contains(_auth.currentUser?.uid),
-      };
-    } catch (e) {
-      if (kDebugMode) {
-        print('Get quiz results error: $e');
-      }
-      return null;
-    }
-  }
-
   // ========== AUTHENTICATION METHODS ==========
 
   Future<bool> signUp(String email, String password, String displayName) async {
@@ -182,7 +33,11 @@ class FirebaseService with ChangeNotifier {
         'points': 0,
         'friendsCount': 0,
         'postsCount': 0,
+        'studyHours': 0,
+        'quizzesCompleted': 0,
+        'notesCreated': 0,
         'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
       notifyListeners();
@@ -227,7 +82,310 @@ class FirebaseService with ChangeNotifier {
       DocumentSnapshot userDoc = await _firestore.collection('users').doc(_auth.currentUser!.uid).get();
       return userDoc.data() as Map<String, dynamic>?;
     } catch (e) {
+      if (kDebugMode) {
+        print('Get user data error: $e');
+      }
       return null;
+    }
+  }
+
+  // ========== PROFILE METHODS ==========
+
+  Future<bool> updateProfile(String displayName, String bio) async {
+    try {
+      if (_auth.currentUser == null) return false;
+
+      await _auth.currentUser!.updateDisplayName(displayName);
+
+      await _firestore.collection('users').doc(_auth.currentUser!.uid).update({
+        'displayName': displayName,
+        'bio': bio,
+        'avatar': displayName[0],
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Update profile error: $e');
+      }
+      return false;
+    }
+  }
+
+  // ========== USER STATS & PROGRESS METHODS ==========
+
+  Future<void> updateUserStats({
+    int? postsCount,
+    double? studyHours,
+    int? quizzesCompleted,
+    int? notesCreated,
+    int? points,
+  }) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      final updateData = <String, dynamic>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (postsCount != null) updateData['postsCount'] = FieldValue.increment(postsCount);
+      if (studyHours != null) updateData['studyHours'] = FieldValue.increment(studyHours);
+      if (quizzesCompleted != null) updateData['quizzesCompleted'] = FieldValue.increment(quizzesCompleted);
+      if (notesCreated != null) updateData['notesCreated'] = FieldValue.increment(notesCreated);
+      if (points != null) updateData['points'] = FieldValue.increment(points);
+
+      if (updateData.isNotEmpty) {
+        await _firestore.collection('users').doc(_auth.currentUser!.uid).update(updateData);
+        notifyListeners();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Update user stats error: $e');
+      }
+    }
+  }
+
+  // ========== ACTIVITY METHODS ==========
+
+  Future<void> addUserActivity(String type, String title, String description, {Map<String, dynamic>? data}) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      await _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('recent_activities')
+          .add({
+            'type': type,
+            'title': title,
+            'description': description,
+            'data': data ?? {},
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+    } catch (e) {
+      if (kDebugMode) {
+        print('Add user activity error: $e');
+      }
+    }
+  }
+
+  Stream<QuerySnapshot> getUserActivities() {
+    try {
+      if (_auth.currentUser == null) {
+        return const Stream.empty();
+      }
+      
+      return _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('recent_activities')
+          .orderBy('timestamp', descending: true)
+          .limit(10)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get user activities error: $e');
+      }
+      return const Stream.empty();
+    }
+  }
+
+  // ========== ACHIEVEMENT METHODS ==========
+
+  Future<void> unlockAchievement(String achievementId, String title, String description, int points) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      final achievementDoc = await _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('achievements')
+          .doc(achievementId)
+          .get();
+
+      if (!achievementDoc.exists) {
+        await _firestore
+            .collection('users')
+            .doc(_auth.currentUser!.uid)
+            .collection('achievements')
+            .doc(achievementId)
+            .set({
+              'id': achievementId,
+              'title': title,
+              'description': description,
+              'points': points,
+              'unlockedAt': FieldValue.serverTimestamp(),
+            });
+
+        await updateUserStats(points: points);
+
+        await addUserActivity(
+          'achievement_unlocked',
+          'Achievement Unlocked!',
+          'You unlocked: $title',
+          data: {'achievementId': achievementId, 'points': points},
+        );
+
+        notifyListeners();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Unlock achievement error: $e');
+      }
+    }
+  }
+
+  Stream<QuerySnapshot> getUserAchievements() {
+    try {
+      if (_auth.currentUser == null) {
+        return const Stream.empty();
+      }
+      
+      return _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('achievements')
+          .orderBy('unlockedAt', descending: true)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get user achievements error: $e');
+      }
+      return const Stream.empty();
+    }
+  }
+
+  // ========== STUDY GROUP METHODS ==========
+
+  Future<bool> createStudyGroup(String name, String description, String subject, List<String> tags) async {
+    try {
+      if (_auth.currentUser == null) return false;
+
+      final userData = await getUserData();
+      final groupId = _firestore.collection('study_groups').doc().id;
+
+      await _firestore.collection('study_groups').doc(groupId).set({
+        'id': groupId,
+        'name': name,
+        'description': description,
+        'subject': subject,
+        'tags': tags,
+        'createdBy': _auth.currentUser!.uid,
+        'createdByName': userData?['displayName'] ?? 'User',
+        'memberCount': 1,
+        'members': [_auth.currentUser!.uid],
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await _firestore
+          .collection('study_groups')
+          .doc(groupId)
+          .collection('members')
+          .doc(_auth.currentUser!.uid)
+          .set({
+            'userId': _auth.currentUser!.uid,
+            'userName': userData?['displayName'] ?? 'User',
+            'userAvatar': userData?['avatar'] ?? 'U',
+            'joinedAt': FieldValue.serverTimestamp(),
+            'role': 'admin',
+          });
+
+      await addUserActivity(
+        'group_created',
+        'Study Group Created',
+        'You created: $name',
+        data: {'groupId': groupId, 'groupName': name},
+      );
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Create study group error: $e');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> joinStudyGroup(String groupId) async {
+    try {
+      if (_auth.currentUser == null) return false;
+
+      final userData = await getUserData();
+      final groupDoc = await _firestore.collection('study_groups').doc(groupId).get();
+      
+      if (!groupDoc.exists) return false;
+
+      await _firestore
+          .collection('study_groups')
+          .doc(groupId)
+          .collection('members')
+          .doc(_auth.currentUser!.uid)
+          .set({
+            'userId': _auth.currentUser!.uid,
+            'userName': userData?['displayName'] ?? 'User',
+            'userAvatar': userData?['avatar'] ?? 'U',
+            'joinedAt': FieldValue.serverTimestamp(),
+            'role': 'member',
+          });
+
+      await _firestore.collection('study_groups').doc(groupId).update({
+        'memberCount': FieldValue.increment(1),
+        'members': FieldValue.arrayUnion([_auth.currentUser!.uid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      final groupData = groupDoc.data() as Map<String, dynamic>;
+      
+      await addUserActivity(
+        'group_joined',
+        'Study Group Joined',
+        'You joined: ${groupData['name']}',
+        data: {'groupId': groupId, 'groupName': groupData['name']},
+      );
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Join study group error: $e');
+      }
+      return false;
+    }
+  }
+
+  Stream<QuerySnapshot> getUserStudyGroups() {
+    try {
+      if (_auth.currentUser == null) {
+        return const Stream.empty();
+      }
+      
+      return _firestore
+          .collection('study_groups')
+          .where('members', arrayContains: _auth.currentUser!.uid)
+          .orderBy('updatedAt', descending: true)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get user study groups error: $e');
+      }
+      return const Stream.empty();
+    }
+  }
+
+  Stream<QuerySnapshot> getAllStudyGroups() {
+    try {
+      return _firestore
+          .collection('study_groups')
+          .orderBy('memberCount', descending: true)
+          .limit(50)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get all study groups error: $e');
+      }
+      return const Stream.empty();
     }
   }
 
@@ -263,9 +421,14 @@ class FirebaseService with ChangeNotifier {
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      await _firestore.collection('users').doc(_auth.currentUser!.uid).update({
-        'postsCount': FieldValue.increment(1),
-      });
+      await updateUserStats(postsCount: 1);
+
+      await addUserActivity(
+        'post_created',
+        'Post Created',
+        'You shared: ${content.length > 50 ? content.substring(0, 50) + '...' : content}',
+        data: {'postId': postId, 'type': type},
+      );
 
       return true;
     } catch (e) {
@@ -276,14 +439,147 @@ class FirebaseService with ChangeNotifier {
     }
   }
 
-  Stream<QuerySnapshot> getPosts() {
-    return _firestore
-        .collection('posts')
-        .orderBy('timestamp', descending: true)
-        .snapshots();
+  Future<bool> createQuizPost({
+    required String question,
+    required List<String> options,
+    required String subject,
+    List<String> tags = const [],
+  }) async {
+    try {
+      if (_auth.currentUser == null) return false;
+
+      Map<String, dynamic>? userData = await getUserData();
+      
+      String postId = _firestore.collection('posts').doc().id;
+      
+      Map<String, int> optionVotes = {};
+      for (String option in options) {
+        optionVotes[option] = 0;
+      }
+
+      await _firestore.collection('posts').doc(postId).set({
+        'id': postId,
+        'userId': _auth.currentUser!.uid,
+        'userName': userData?['displayName'] ?? _auth.currentUser!.email!.split('@').first,
+        'userAvatar': userData?['avatar'] ?? _auth.currentUser!.email![0],
+        'content': question,
+        'type': 'quiz',
+        'subject': subject,
+        'tags': tags,
+        
+        'quizOptions': options,
+        'quizVotes': optionVotes,
+        'votedUsers': [],
+        'totalVotes': 0,
+        'correctAnswer': null,
+        
+        'likes': 0,
+        'comments': 0,
+        'shares': 0,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      await updateUserStats(postsCount: 1, quizzesCompleted: 1);
+
+      await addUserActivity(
+        'quiz_created',
+        'Quiz Created',
+        'You created a quiz: $question',
+        data: {'postId': postId, 'subject': subject},
+      );
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Create quiz post error: $e');
+      }
+      return false;
+    }
   }
 
-  // ========== FIXED LIKE METHODS ==========
+  Stream<QuerySnapshot> getPosts() {
+    try {
+      return _firestore
+          .collection('posts')
+          .orderBy('timestamp', descending: true)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get posts error: $e');
+      }
+      return const Stream.empty();
+    }
+  }
+
+  // ADD THIS METHOD - FIXED FOR PROFILE SCREEN
+  Stream<QuerySnapshot> getUserPosts(String userId) {
+    try {
+      return _firestore
+          .collection('posts')
+          .where('userId', isEqualTo: userId)
+          .orderBy('timestamp', descending: true)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get user posts error: $e');
+      }
+      return const Stream.empty();
+    }
+  }
+
+  // ========== QUIZ METHODS ==========
+
+  Future<bool> voteOnQuiz(String postId, String selectedOption) async {
+    try {
+      if (_auth.currentUser == null) return false;
+
+      final currentUserId = _auth.currentUser!.uid;
+
+      final postDoc = await _firestore.collection('posts').doc(postId).get();
+      if (!postDoc.exists) return false;
+      
+      final postData = postDoc.data() as Map<String, dynamic>;
+      
+      final List<dynamic> votedUsers = postData['votedUsers'] ?? [];
+      if (votedUsers.contains(currentUserId)) {
+        return false;
+      }
+
+      await _firestore.collection('posts').doc(postId).update({
+        'quizVotes.$selectedOption': FieldValue.increment(1),
+        'totalVotes': FieldValue.increment(1),
+        'votedUsers': FieldValue.arrayUnion([currentUserId]),
+      });
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Vote on quiz error: $e');
+      }
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getQuizResults(String postId) async {
+    try {
+      final postDoc = await _firestore.collection('posts').doc(postId).get();
+      if (!postDoc.exists) return null;
+      
+      final postData = postDoc.data() as Map<String, dynamic>;
+      return {
+        'votes': postData['quizVotes'] ?? {},
+        'totalVotes': postData['totalVotes'] ?? 0,
+        'hasVoted': (postData['votedUsers'] ?? []).contains(_auth.currentUser?.uid),
+      };
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get quiz results error: $e');
+      }
+      return null;
+    }
+  }
+
+  // ========== LIKE SYSTEM ==========
 
   Future<void> likePost(String postId) async {
     try {
@@ -292,7 +588,6 @@ class FirebaseService with ChangeNotifier {
       final currentUserId = _auth.currentUser!.uid;
       final postRef = _firestore.collection('posts').doc(postId);
       
-      // Check if user already liked this post
       final userLikeRef = _firestore
           .collection('posts')
           .doc(postId)
@@ -302,13 +597,11 @@ class FirebaseService with ChangeNotifier {
       final userLikeDoc = await userLikeRef.get();
       
       if (userLikeDoc.exists) {
-        // User already liked - unlike it
         await userLikeRef.delete();
         await postRef.update({
           'likes': FieldValue.increment(-1),
         });
       } else {
-        // User hasn't liked - like it
         await userLikeRef.set({
           'userId': currentUserId,
           'timestamp': FieldValue.serverTimestamp(),
@@ -324,63 +617,151 @@ class FirebaseService with ChangeNotifier {
     }
   }
 
-  Future<bool> hasUserLikedPost(String postId) async {
+  Stream<bool> getPostLikeStatus(String postId) {
     try {
-      if (_auth.currentUser == null) return false;
-
-      final userLikeDoc = await _firestore
+      if (_auth.currentUser == null) return Stream.value(false);
+      
+      return _firestore
           .collection('posts')
           .doc(postId)
           .collection('likes')
           .doc(_auth.currentUser!.uid)
-          .get();
-
-      return userLikeDoc.exists;
+          .snapshots()
+          .map((snapshot) => snapshot.exists);
     } catch (e) {
       if (kDebugMode) {
-        print('Check like error: $e');
+        print('Get post like status error: $e');
       }
-      return false;
+      return Stream.value(false);
     }
   }
 
-  Future<void> addFriend() async {
-    try {
-      if (_auth.currentUser == null) return;
+  // ========== COMMENT SYSTEM ==========
 
-      await _firestore.collection('users').doc(_auth.currentUser!.uid).update({
-        'friendsCount': FieldValue.increment(1),
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        print('Add friend error: $e');
-      }
-    }
-  }
-
-  Future<bool> updateProfile(String displayName, String bio) async {
+  Future<bool> addComment(String postId, String content) async {
     try {
       if (_auth.currentUser == null) return false;
 
-      await _auth.currentUser!.updateDisplayName(displayName);
-
-      await _firestore.collection('users').doc(_auth.currentUser!.uid).update({
-        'displayName': displayName,
-        'bio': bio,
-        'avatar': displayName[0],
+      Map<String, dynamic>? userData = await getUserData();
+      
+      String commentId = _firestore.collection('comments').doc().id;
+      
+      await _firestore.collection('comments').doc(commentId).set({
+        'id': commentId,
+        'postId': postId,
+        'userId': _auth.currentUser!.uid,
+        'userName': userData?['displayName'] ?? _auth.currentUser!.email!.split('@').first,
+        'userAvatar': userData?['avatar'] ?? _auth.currentUser!.email![0],
+        'content': content,
+        'likes': 0,
+        'timestamp': FieldValue.serverTimestamp(),
       });
 
-      notifyListeners();
+      await _firestore.collection('posts').doc(postId).update({
+        'comments': FieldValue.increment(1),
+      });
+
+      await addUserActivity(
+        'comment_created',
+        'Comment Added',
+        'You commented on a post',
+        data: {'postId': postId},
+      );
+
       return true;
     } catch (e) {
       if (kDebugMode) {
-        print('Update profile error: $e');
+        print('Add comment error: $e');
       }
       return false;
     }
   }
 
-  // ========== FRIENDS SYSTEM METHODS ==========
+  Stream<QuerySnapshot> getComments(String postId) {
+    try {
+      return _firestore
+          .collection('comments')
+          .where('postId', isEqualTo: postId)
+          .orderBy('timestamp', descending: false)
+          .snapshots();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get comments error: $e');
+      }
+      return const Stream.empty();
+    }
+  }
+
+  Future<void> likeComment(String commentId) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      final currentUserId = _auth.currentUser!.uid;
+      final commentRef = _firestore.collection('comments').doc(commentId);
+      
+      final userLikeRef = _firestore
+          .collection('comments')
+          .doc(commentId)
+          .collection('likes')
+          .doc(currentUserId);
+
+      final userLikeDoc = await userLikeRef.get();
+      
+      if (userLikeDoc.exists) {
+        await userLikeRef.delete();
+        await commentRef.update({
+          'likes': FieldValue.increment(-1),
+        });
+      } else {
+        await userLikeRef.set({
+          'userId': currentUserId,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+        await commentRef.update({
+          'likes': FieldValue.increment(1),
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Like comment error: $e');
+      }
+    }
+  }
+
+  Stream<bool> getCommentLikeStatus(String commentId) {
+    try {
+      if (_auth.currentUser == null) return Stream.value(false);
+      
+      return _firestore
+          .collection('comments')
+          .doc(commentId)
+          .collection('likes')
+          .doc(_auth.currentUser!.uid)
+          .snapshots()
+          .map((snapshot) => snapshot.exists);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Get comment like status error: $e');
+      }
+      return Stream.value(false);
+    }
+  }
+
+  Future<void> deleteComment(String commentId, String postId) async {
+    try {
+      await _firestore.collection('comments').doc(commentId).delete();
+      
+      await _firestore.collection('posts').doc(postId).update({
+        'comments': FieldValue.increment(-1),
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('Delete comment error: $e');
+      }
+    }
+  }
+
+  // ========== FRIENDS SYSTEM ==========
 
   Future<void> sendFriendRequest(String targetUserId, String targetUserName, String targetUserAvatar) async {
     try {
@@ -388,7 +769,6 @@ class FirebaseService with ChangeNotifier {
 
       final currentUserId = _auth.currentUser!.uid;
       
-      // Check if request already exists
       final existingRequest = await _firestore
           .collection('friend_requests')
           .where('fromUserId', isEqualTo: currentUserId)
@@ -398,10 +778,8 @@ class FirebaseService with ChangeNotifier {
 
       if (existingRequest.docs.isNotEmpty) return;
 
-      // Get current user data
       final currentUserData = await getUserData();
       
-      // Create friend request
       await _firestore.collection('friend_requests').add({
         'fromUserId': currentUserId,
         'toUserId': targetUserId,
@@ -409,9 +787,16 @@ class FirebaseService with ChangeNotifier {
         'fromUserAvatar': currentUserData?['avatar'] ?? userAvatar ?? 'U',
         'toUserName': targetUserName,
         'toUserAvatar': targetUserAvatar,
-        'status': 'pending', // pending, accepted, rejected
+        'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      await addUserActivity(
+        'friend_request_sent',
+        'Friend Request Sent',
+        'You sent a friend request to $targetUserName',
+        data: {'targetUserId': targetUserId, 'targetUserName': targetUserName},
+      );
 
       notifyListeners();
     } catch (e) {
@@ -432,19 +817,15 @@ class FirebaseService with ChangeNotifier {
       final fromUserId = requestData['fromUserId'];
       final currentUserId = _auth.currentUser!.uid;
 
-      // Update request status
       await _firestore.collection('friend_requests').doc(requestId).update({
         'status': 'accepted',
         'acceptedAt': FieldValue.serverTimestamp(),
       });
 
-      // Add to friends list for both users
       final batch = _firestore.batch();
       
-      // Get current user data
       final currentUserData = await getUserData();
       
-      // Add to current user's friends
       batch.set(
         _firestore.collection('users').doc(currentUserId).collection('friends').doc(fromUserId),
         {
@@ -455,7 +836,6 @@ class FirebaseService with ChangeNotifier {
         }
       );
       
-      // Add to other user's friends
       batch.set(
         _firestore.collection('users').doc(fromUserId).collection('friends').doc(currentUserId),
         {
@@ -466,7 +846,6 @@ class FirebaseService with ChangeNotifier {
         }
       );
 
-      // Update friends count for both users
       batch.update(_firestore.collection('users').doc(currentUserId), {
         'friendsCount': FieldValue.increment(1),
       });
@@ -476,6 +855,14 @@ class FirebaseService with ChangeNotifier {
       });
 
       await batch.commit();
+
+      await addUserActivity(
+        'friend_added',
+        'New Friend!',
+        'You became friends with ${requestData['fromUserName']}',
+        data: {'friendUserId': fromUserId, 'friendName': requestData['fromUserName']},
+      );
+
       notifyListeners();
     } catch (e) {
       if (kDebugMode) {
@@ -493,6 +880,39 @@ class FirebaseService with ChangeNotifier {
     } catch (e) {
       if (kDebugMode) {
         print('Reject friend request error: $e');
+      }
+    }
+  }
+
+  Future<void> removeFriend(String friendUserId) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      final currentUserId = _auth.currentUser!.uid;
+
+      final batch = _firestore.batch();
+
+      batch.delete(
+        _firestore.collection('users').doc(currentUserId).collection('friends').doc(friendUserId)
+      );
+
+      batch.delete(
+        _firestore.collection('users').doc(friendUserId).collection('friends').doc(currentUserId)
+      );
+
+      batch.update(_firestore.collection('users').doc(currentUserId), {
+        'friendsCount': FieldValue.increment(-1),
+      });
+      
+      batch.update(_firestore.collection('users').doc(friendUserId), {
+        'friendsCount': FieldValue.increment(-1),
+      });
+
+      await batch.commit();
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Remove friend error: $e');
       }
     }
   }
@@ -548,12 +968,11 @@ class FirebaseService with ChangeNotifier {
           .limit(10)
           .get();
 
-      // Filter out current user
       final currentUserId = _auth.currentUser?.uid;
       return snapshot.docs
           .where((doc) => doc.id != currentUserId)
           .map((doc) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>;
         return {
           'id': doc.id,
           ...data,
@@ -573,7 +992,6 @@ class FirebaseService with ChangeNotifier {
 
       final currentUserId = _auth.currentUser!.uid;
 
-      // Check if already friends
       final friendDoc = await _firestore
           .collection('users')
           .doc(currentUserId)
@@ -585,7 +1003,6 @@ class FirebaseService with ChangeNotifier {
         return {'status': 'friends'};
       }
 
-      // Check for pending requests (sent by current user)
       final sentRequest = await _firestore
           .collection('friend_requests')
           .where('fromUserId', isEqualTo: currentUserId)
@@ -598,7 +1015,6 @@ class FirebaseService with ChangeNotifier {
         return {'status': 'request_sent', 'requestId': sentRequest.docs.first.id};
       }
 
-      // Check for received requests (sent to current user)
       final receivedRequest = await _firestore
           .collection('friend_requests')
           .where('fromUserId', isEqualTo: targetUserId)
@@ -617,171 +1033,6 @@ class FirebaseService with ChangeNotifier {
         print('Get friend status error: $e');
       }
       return null;
-    }
-  }
-
-  Future<void> removeFriend(String friendUserId) async {
-    try {
-      if (_auth.currentUser == null) return;
-
-      final currentUserId = _auth.currentUser!.uid;
-
-      final batch = _firestore.batch();
-
-      // Remove from current user's friends
-      batch.delete(
-        _firestore.collection('users').doc(currentUserId).collection('friends').doc(friendUserId)
-      );
-
-      // Remove from friend's friends list
-      batch.delete(
-        _firestore.collection('users').doc(friendUserId).collection('friends').doc(currentUserId)
-      );
-
-      // Update friends count for both users
-      batch.update(_firestore.collection('users').doc(currentUserId), {
-        'friendsCount': FieldValue.increment(-1),
-      });
-      
-      batch.update(_firestore.collection('users').doc(friendUserId), {
-        'friendsCount': FieldValue.increment(-1),
-      });
-
-      await batch.commit();
-      notifyListeners();
-    } catch (e) {
-      if (kDebugMode) {
-        print('Remove friend error: $e');
-      }
-    }
-  }
-
-  // ========== COMMENT METHODS ==========
-
-  Future<bool> addComment(String postId, String content) async {
-    try {
-      if (_auth.currentUser == null) return false;
-
-      Map<String, dynamic>? userData = await getUserData();
-      
-      String commentId = _firestore.collection('comments').doc().id;
-      
-      await _firestore.collection('comments').doc(commentId).set({
-        'id': commentId,
-        'postId': postId,
-        'userId': _auth.currentUser!.uid,
-        'userName': userData?['displayName'] ?? _auth.currentUser!.email!.split('@').first,
-        'userAvatar': userData?['avatar'] ?? _auth.currentUser!.email![0],
-        'content': content,
-        'likes': 0,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      // Update comment count in post
-      await _firestore.collection('posts').doc(postId).update({
-        'comments': FieldValue.increment(1),
-      });
-
-      return true;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Add comment error: $e');
-      }
-      return false;
-    }
-  }
-
-  // FIXED: Manual sorting to avoid composite index error
-  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> getComments(String postId) {
-  return _firestore
-      .collection('comments')
-      .where('postId', isEqualTo: postId)
-      .snapshots()
-      .map((snapshot) {
-    // Manual sorting as temporary workaround for index error
-    final sortedDocs = snapshot.docs.toList()
-      ..sort((a, b) {
-        final aTime = (a.data()['timestamp'] as Timestamp).millisecondsSinceEpoch;
-        final bTime = (b.data()['timestamp'] as Timestamp).millisecondsSinceEpoch;
-        return aTime.compareTo(bTime); // Ascending order (oldest first)
-      });
-    
-    return sortedDocs;
-  });
-}
-
-  Future<void> likeComment(String commentId) async {
-    try {
-      if (_auth.currentUser == null) return;
-
-      final currentUserId = _auth.currentUser!.uid;
-      final commentRef = _firestore.collection('comments').doc(commentId);
-      
-      // Check if user already liked this comment
-      final userLikeRef = _firestore
-          .collection('comments')
-          .doc(commentId)
-          .collection('likes')
-          .doc(currentUserId);
-
-      final userLikeDoc = await userLikeRef.get();
-      
-      if (userLikeDoc.exists) {
-        // User already liked - unlike it
-        await userLikeRef.delete();
-        await commentRef.update({
-          'likes': FieldValue.increment(-1),
-        });
-      } else {
-        // User hasn't liked - like it
-        await userLikeRef.set({
-          'userId': currentUserId,
-          'timestamp': FieldValue.serverTimestamp(),
-        });
-        await commentRef.update({
-          'likes': FieldValue.increment(1),
-        });
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Like comment error: $e');
-      }
-    }
-  }
-
-  Future<bool> hasUserLikedComment(String commentId) async {
-    try {
-      if (_auth.currentUser == null) return false;
-
-      final userLikeDoc = await _firestore
-          .collection('comments')
-          .doc(commentId)
-          .collection('likes')
-          .doc(_auth.currentUser!.uid)
-          .get();
-
-      return userLikeDoc.exists;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Check comment like error: $e');
-      }
-      return false;
-    }
-  }
-
-  Future<void> deleteComment(String commentId, String postId) async {
-    try {
-      // Delete the comment
-      await _firestore.collection('comments').doc(commentId).delete();
-      
-      // Decrement comment count in post
-      await _firestore.collection('posts').doc(postId).update({
-        'comments': FieldValue.increment(-1),
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        print('Delete comment error: $e');
-      }
     }
   }
 }

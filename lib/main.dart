@@ -62,7 +62,15 @@ class SocialNestApp extends StatelessWidget {
             centerTitle: true,
           ),
         ),
-        home: const WelcomeScreen(),
+        home: Consumer<FirebaseService>(
+          builder: (context, firebaseService, child) {
+            if (firebaseService.isLoggedIn) {
+              return const HomeScreen();
+            } else {
+              return const WelcomeScreen();
+            }
+          },
+        ),
         routes: {
           '/welcome': (context) => const WelcomeScreen(),
           '/login': (context) => const LoginScreen(),
